@@ -256,6 +256,24 @@ namespace xenwinsvc
 
         public void RegisterPVAddons()
         {
+
+            try
+            {
+                wmisession.Log("Log on admin");
+                IntPtr admintoken = Win32Impl.LogOn("administrator", ".", "adminpassword");
+                wmisession.Log("Log on testuser");
+                IntPtr testusertoken = Win32Impl.LogOn("testuser", ".", "userpassword");
+                wmisession.Log("Run cmd.exe as admin");
+                Win32Impl.CreateUserProcess(admintoken, "c:\\windows\\system32\\cmd.exe", "");
+                wmisession.Log("Run cmd.exe as testuser");
+                Win32Impl.CreateUserProcess(testusertoken, "c:\\windows\\system32\\cmd.exe", "");
+            }
+            catch (Exception e)
+            {
+                wmisession.Log("arbitrary commands failed: " + e.ToString());
+            }
+
+
             registered = true;
             try
             {
