@@ -29,6 +29,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="BrandSupport">
+      <HintPath>..\..\refdll\BrandSupport.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Management" />
@@ -55,6 +58,7 @@
     <Compile Include="..\..\src\xenguestlib\VolumeInfo.cs" />
     <Compile Include="..\..\src\xenguestlib\Win32Impl.cs" />
     <Compile Include="..\..\src\xenguestlib\Wmi.cs" />
+    <Compile Include="..\..\src\xenguestlib\Branding.cs" />
   </ItemGroup>
   <ItemGroup>
     <COMReference Include="NetFwTypeLib">
