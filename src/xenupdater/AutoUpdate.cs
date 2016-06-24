@@ -228,7 +228,7 @@ namespace XenUpdater
 
                 session.Log("Downloading: " + update.Url);
 
-                Downloader down = new Downloader();
+                Downloader down = new Downloader(session);
                 if (!down.Download(update.Url, temp, update.Size))
                     throw new ArgumentException("Update was incorrect size " + update.Url + " > " + update.Size.ToString() + " bytes");
 
@@ -334,8 +334,9 @@ namespace XenUpdater
 
         class Downloader
         {
-            public Downloader()
+            public Downloader(XenStoreSession session)
             {
+                this.session = session;
                 finished = new AutoResetEvent(false);
             }
 
@@ -356,8 +357,10 @@ namespace XenUpdater
 
             private void DownloadCompleted(object sender, System.ComponentModel.AsyncCompletedEventArgs evt)
             {
+                session.Log("Complete msg");
                 if (evt.Cancelled || evt.Error != null)
                     error = true;
+                session.Log("Complete");
 				complete = true;
                 finished.Set();
             }
@@ -366,6 +369,7 @@ namespace XenUpdater
             {
                 if (evt.BytesReceived > maxSize)
                 {
+                    session.Log("Received = " + evt.BytesReceived.ToString() + " maxSize = " + maxSize.ToString());
                     error = true;
                     client.CancelAsync();
                     finished.Set();
@@ -377,6 +381,7 @@ namespace XenUpdater
             private bool complete;
 			private bool error;
             private AutoResetEvent finished;
+            private XenStoreSession session;
         }
 
         class Win32Impl
