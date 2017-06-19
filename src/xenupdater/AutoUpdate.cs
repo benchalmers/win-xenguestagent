@@ -44,50 +44,89 @@ using BrandSupport;
 
 namespace XenUpdater
 {
-    class AutoUpdate
+
+
+    public interface IGetReg
     {
-        XenStoreSession session;
-        XenStoreItem licensed;
-        XenStoreItem enabled;
-        XenStoreItem update_url;
-        XenStoreItem xdvdapresent;
-        XenStoreItem allowdriverupdate;
-        XenStoreItem uuid;
-        Version version;
-
-        static private object GetReg(string key, string name, object def)
+        object GetReg(string key, string name, object def);
+    }
+            public interface IWebClientWrapper
         {
-            try
+            void AddHeader(string header, string value);
+            string DownloadString(string url);
+        }
+
+        public class WebClientWrapper : IWebClientWrapper
+        {
+            WebClient client;
+            public WebClientWrapper()
             {
-                object obj = Registry.GetValue(key, name, def);
-                if (obj == null)
+                client = new WebClient();
+            }
+            public void AddHeader(string header, string value)
+            {
+                client.Headers.Add(header, value);
+            }
+            public string DownloadString(string url)
+            {
+                return client.DownloadString(url);
+            }
+        }
+
+    public class AutoUpdate
+    {
+        IXenStoreItemFactory session;
+        ACXenStoreItem licensed;
+        ACXenStoreItem enabled;
+        ACXenStoreItem update_url;
+        ACXenStoreItem xdvdapresent;
+        ACXenStoreItem allowdriverupdate;
+        ACXenStoreItem uuid;
+        public Version version;
+        IBranding Branding;
+        IGetReg getreg;
+
+        public class CGetReg : IGetReg
+        {
+            public object GetReg(string key, string name, object def)
+            {
+                try
+                {
+                    object obj = Registry.GetValue(key, name, def);
+                    if (obj == null)
+                        return def;
+                    return obj;
+                }
+                catch
+                {
                     return def;
-                return obj;
-            }
-            catch
-            {
-                return def;
+                }
             }
         }
 
-        public AutoUpdate()
+        public AutoUpdate() : this(new XenStoreItemFactory("CheckNow"), new CBranding(), new CGetReg())
         {
-            session = new XenStoreSession("CheckNow");
-            licensed = new XenStoreItem(session, "/guest_agent_features/Guest_agent_auto_update/licensed");
-            enabled = new XenStoreItem(session, "/guest_agent_features/Guest_agent_auto_update/parameters/enabled");
-            update_url = new XenStoreItem(session, "/guest_agent_features/Guest_agent_auto_update/parameters/update_url");
-            allowdriverupdate = new XenStoreItem(session, "/guest_agent_features/Guest_agent_auto_update/parameters/allow-driver-install");
-            xdvdapresent = new XenStoreItem(session, "data/xd/present");
-            uuid = new XenStoreItem(session, "vm");
-
-            int major = (int)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MajorVersion", 0); 
-            int minor = (int)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MinorVersion", 0);
-            int micro = (int)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MicroVersion", 0);
-            int build = (int)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "BuildVersion", 0);
+        }
+        public AutoUpdate(IXenStoreItemFactory XSFactory, IBranding branding, IGetReg getreg)
+        {
+            session = XSFactory;
+            licensed = XSFactory.newXenStoreItem("/guest_agent_features/Guest_agent_auto_update/licensed");
+            enabled = XSFactory.newXenStoreItem("/guest_agent_features/Guest_agent_auto_update/parameters/enabled");
+            update_url = XSFactory.newXenStoreItem("/guest_agent_features/Guest_agent_auto_update/parameters/update_url");
+            allowdriverupdate = XSFactory.newXenStoreItem("/guest_agent_features/Guest_agent_auto_update/parameters/allow-driver-install");
+            xdvdapresent = XSFactory.newXenStoreItem("data/xd/present");
+            uuid = XSFactory.newXenStoreItem("vm");
+            this.getreg = getreg;
+            int major = (int)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MajorVersion", 0);
+            int minor = (int)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MinorVersion", 0);
+            int micro = (int)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "MicroVersion", 0);
+            int build = (int)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "BuildVersion", 0);
             version = new Version(major, minor, micro, build);
+            this.Branding = branding;
+            
         }
 
-        public bool CheckIfInstalling()
+        public virtual bool CheckIfInstalling()
         {
             try
             {
@@ -145,7 +184,7 @@ namespace XenUpdater
                 return false;
             }
 
-            if ((int)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "DisableAutoUpdate", 0) != 0)
+            if ((int)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "DisableAutoUpdate", 0) != 0)
             {
                 session.Log("Guest disallowed updates");
                 return false;
@@ -179,7 +218,7 @@ namespace XenUpdater
 
             if (poolAllowsDriverInstall)
             {
-                driverInstall = (string)GetReg("HKEY_LOCAL_MACHINE\\Software\\Citrix\\XenTools\\AutoUpdate", "InstallDrivers", Branding.GetString("BRANDING_allowDriverUpdate"));
+                driverInstall = (string)getreg.GetReg("HKEY_LOCAL_MACHINE\\Software\\Citrix\\XenTools\\AutoUpdate", "InstallDrivers", Branding.GetString("BRANDING_allowDriverUpdate"));
                 if (!(driverInstall.Equals("YES") || driverInstall.Equals("NO")))
                 {
                     session.Log("Unexpected value of AutoUpdate\\InstallDrivers, assuming you meant " + Branding.GetString("BRANDING_allowDriverUpdate"));
@@ -216,13 +255,19 @@ namespace XenUpdater
             Process proc = Process.Start(start);
         }
 
-        private Update CheckForUpdates()
+
+
+        public virtual Update CheckForUpdates()
+        {
+            return CheckForUpdates(new WebClientWrapper());
+        }
+        public Update CheckForUpdates(IWebClientWrapper client)
         {
             string url = Branding.GetString("BRANDING_updaterURL");
             if (String.IsNullOrEmpty(url))
                 url = "https://pvupdates.vmd.citrix.com/updates.v2.tsv";
-            
-            string identify = (string)GetReg("HKEY_LOCAL_MACHINE\\Software\\Citrix\\XenTools\\AutoUpdate", "Identify", "NO");
+
+            string identify = (string)getreg.GetReg("HKEY_LOCAL_MACHINE\\Software\\Citrix\\XenTools\\AutoUpdate", "Identify", "NO");
             if (identify.Equals("YES"))
             {
                 url += "?id=" + uuid.Value.Substring(4);
@@ -230,8 +275,8 @@ namespace XenUpdater
 
             if (update_url.Exists)
                 url = update_url.Value;
-            
-            url = (string)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "update_url", url);
+
+            url = (string)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools", "update_url", url);
 
             if (String.IsNullOrEmpty(url))
             {
@@ -243,10 +288,9 @@ namespace XenUpdater
             string contents = null;
             try
             {
-                string userAgent = (string)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools\\AutoUpdate", "UserAgent", Branding.GetString("BRANDING_userAgent"));
-                WebClient client = new WebClient();
+                string userAgent = (string)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools\\AutoUpdate", "UserAgent", Branding.GetString("BRANDING_userAgent"));
                 session.Log("This is my user agent : " + userAgent);
-                client.Headers.Add("User-Agent", userAgent);
+                client.AddHeader("User-Agent", userAgent);
                 contents = client.DownloadString(url);
             }
             catch (Exception e)
@@ -302,7 +346,7 @@ namespace XenUpdater
 
                 session.Log("Downloading: " + update.Url);
 
-                Downloader down = new Downloader();
+                Downloader down = new Downloader(Branding, getreg);
                 if (!down.Download(update.Url, temp, update.Size))
                     throw new ArgumentException("Update was incorrect size " + update.Url + " > " + update.Size.ToString() + " bytes");
 
@@ -359,7 +403,7 @@ namespace XenUpdater
             return String.IsNullOrEmpty(targetPath) ? path : targetPath;
         }
 
-        class Update
+        public class Update
         {
             internal string Arch { get; private set; }
             internal string FileName { get; private set; }
@@ -408,9 +452,13 @@ namespace XenUpdater
 
         class Downloader
         {
-            public Downloader()
+            IBranding Branding;
+            IGetReg getreg;
+            public Downloader(IBranding branding, IGetReg getreg)
             {
                 finished = new AutoResetEvent(false);
+                Branding = branding;
+                this.getreg = getreg;
             }
 
             public bool Download(string url, string file, int maxsize)
@@ -419,7 +467,7 @@ namespace XenUpdater
                 complete = false;
 				error = false;
 
-                string userAgent = (string)GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools\\AutoUpdate", "UserAgent", Branding.GetString("BRANDING_userAgent"));
+                string userAgent = (string)getreg.GetReg("HKEY_LOCAL_MACHINE\\SOFTWARE\\Citrix\\XenTools\\AutoUpdate", "UserAgent", Branding.GetString("BRANDING_userAgent"));
                 client = new WebClient();
                 client.Headers.Add("User-Agent", userAgent);
                 client.DownloadFileCompleted += new System.ComponentModel.AsyncCompletedEventHandler(DownloadCompleted);
